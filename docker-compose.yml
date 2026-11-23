@@ -1,0 +1,39 @@
+services:
+  victim:                     # the monitored web app
+    image: nginx:alpine
+    container_name: victim
+    ports: ["8080:80"]
+  traffic:                    # generates *normal* load against the victim
+    image: alpine
+    container_name: traffic
+    depends_on: [victim]
+    command: sh -c 'while true; do wget -q -O /dev/null http://victim/ ; sleep 0.2; done'
+  guard:                      # eBPF sensor + ML detector
+    build: { context: ., dockerfile: docker/Dockerfile }
+    container_name: guard
+    privileged: true
+    pid: host
+    cgroup: host
+    depends_on: [victim, traffic]
+    environment:
+      TARGET: victim
+      TRAIN_WINDOWS: ${TRAIN_WINDOWS:-12}
+      WINDOW: ${WINDOW:-5}
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - /lib/modules:/lib/modules:ro
+      - /usr/src:/usr/src:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - guard-data:/data
+  portainer:                  # web GUI for the native engine: http://localhost:9000
+    image: portainer/portainer-ce:lts
+    container_name: portainer
+    restart: unless-stopped
+    ports: ["9000:9000"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+volumes:
+  guard-data:
+  portainer-data:
